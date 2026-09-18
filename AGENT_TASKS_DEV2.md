@@ -379,7 +379,7 @@ them as failures and keep going. Do not create or modify any other file.
 
 ---
 
-## B6 — Clean-room README test   ~15 min   ⬜   (do this last, near 3:30)
+## B6 — Clean-room README test   ~15 min   ✅   (do this last, near 3:30)
 
 Prove a judge can actually run our project. Open a **brand-new terminal** and follow your
 own README **exactly as written** — no shortcuts, no knowledge from having built it.
