@@ -121,7 +121,7 @@ the build, tell the lead, and move to B1 — do not get stuck here.)
 
 ---
 
-## B1 — `app/sanitize.py`   ~25 min   ⬜
+## B1 — `app/sanitize.py`   ~25 min   ✅
 
 Two small text-cleaning functions. The lead's code already calls them, so **the names and
 arguments below are fixed — do not rename anything.**
