@@ -310,7 +310,7 @@ The other half can be plainly unrelated (room bookings, exam timetables, cafeter
 
 ---
 
-## B4 — `README.md`   ~40 min   ⬜   ⭐ 10 points
+## B4 — `README.md`   ~40 min   ✅   ⭐ 10 points
 
 Judges score this directly and try to run our project from it on a clean machine. Write all
 13 sections from **plan Section 16**, in that order.
