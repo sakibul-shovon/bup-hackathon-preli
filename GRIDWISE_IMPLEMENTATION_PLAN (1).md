@@ -2,8 +2,23 @@
 
 **Audience:** an agentic coding tool (Claude Code / Antigravity / equivalent).
 **Goal:** implement, test, deploy, and document the highest-scoring, most reliable solution against the hidden automated judge, inside a 4-hour window.
-**Status of this plan:** the mathematical core (Section 10's LP) was pre-verified against all 10 official public sample cases and reproduces the organizer's reference optimal cost to the exact BDT in < 5 ms per case. Nothing in this plan is speculative.
-**Version: V3 (merged).** Incorporates from the alternate "Robustness-First V2" plan: terminal degrade-to-no_op instead of 5xx (I5), LP feasibility salvage (10.5), an expanded few-shot bank with near-miss distractors and South-Asian-English phrasing (7.5b), the self-built hidden-test simulator as a first-class phase (12.8), and parallel A/B build tracks (17). Rejected alternatives and reasons are recorded in Section 20 — do not re-introduce them.
+**Status of this plan:** the mathematical core (Section 10's LP) was independently re-verified against all 10 official public sample cases and reproduces the organizer's reference optimal cost to the exact BDT (diff = 0.0000 on every case, 13–21 simplex iterations, 2–4 ms). **That verification covers the optimizer only.** Everything outside Section 10 — the prompt, the ladder, the guardrails, the deployment — is engineering judgement and carries residual risk; Section 20 lists what is still unverified. Do not read "pre-verified" as "cannot fail."
+
+**Version: V4 (review-merged).** V3 merged the "Robustness-First V2" plan. V4 merges two independent adversarial reviews of V3, both of which found real defects. Changes, all of which OVERRIDE the V3 text they replace:
+
+| # | Defect found in V3 | V4 fix | Section |
+|---|---|---|---|
+| F1 | **Provider-failure behavior self-contradicted in 3 places** (I5/§7.3 said degrade-200; §4 and §16 said controlled 500) | One rule everywhere: provider/model/key failure ⇒ degraded **200**. Only an internal bug is a 500. | I5, §4, §7.3, §16 |
+| F2 | **4 dp emission + ε=1e-6 replay = self-inflicted 500s.** Measured: 105/477 decimal-heavy scenarios fail the service's OWN validator, every one of which the judge would have accepted at its 0.01 tolerance. (6 dp is NOT enough either: 3/477. 8 dp: 0/477.) | Emit **8 dp**, keep ε=1e-6 strict. Plus invariant I36 tying the two together forever. | §10.4, §11, I30, I36 |
+| F3 | **`extra="forbid"` is an unforced catastrophic risk.** One undocumented field in the judge's payload ⇒ 400 on every hidden case ⇒ near-zero score, to protect a fraction of 2 points. | Tolerate unknown fields; stay strict on everything the spec explicitly bounds. | I3, I6, §9.1 |
+| F4 | **I7/§12.3/§20 assert `initial_energy_kwh < minimum_energy_kwh` is feasible. It is unconditionally infeasible** — and §12.3 ships it as a test that "must be ACCEPTED", which a rule-following agent will try to fix by breaking the optimizer. | Corrected with proof; test now asserts 422. | I7, §12.3, §20 |
+| F5 | **Ladder worst case is 32–44 s, not the claimed 24 s** — past the 30 s hard cap, so the request is scored as a failure. No wall-clock budget existed. | Global deadline (I35); every rung bounded by remaining time. | I35, §7.3 |
+| F6 | **Salvage/degrade reported correctly-extracted directives as `no_op`**, discarding interpretation points that are scored in a SEPARATE 25-pt category from application. | Report the interpretation; drop only from the optimizer. | §10.5, I5 |
+| F7 | **Single provider behind all three "fallback" rungs** — dual-model, but one failure domain. | Multi-key rotation (§7.3b) + optional cross-provider rung. | §4, §7.3, §13 |
+| F8 | Model saw only `capacity_kwh`; relative phrasing against other battery params was unanswerable. Windows had no rule for "all day" / open-ended / duration phrasing. | Send all 5 battery fields; expanded window rules + few-shot coverage. | §7.2, §7.5, §7.5b |
+| F9 | Docker image architecture unspecified — an arm64 build from a Mac is unrunnable by an amd64 judge, and the image IS the fallback when the endpoint dies. | `--platform linux/amd64` mandatory. | §15 |
+
+**Reviewer disagreement, resolved by measurement:** review B proposed "emit 6–8 decimals"; review A proposed "keep 4 dp, loosen ε to 1e-3". Both were tested on 477 feasible decimal-heavy scenarios. 6 dp still failed (3/477); 8 dp and ε=1e-3 both reached 0/477. **8 dp wins** because it fixes the defect without loosening the validator. Recorded so nobody re-opens it.
 
 ---
 
@@ -12,6 +27,8 @@
 1. **This document is the architecture. Do not redesign it.** Where this plan is explicit, implement exactly what is written. Where it is silent, choose the simplest option that keeps every invariant in Section 2.
 2. **Vertical slices.** Implement in the phase order of Section 17. After every slice, run that slice's tests. After any change that touches more than one module, run the entire suite.
 3. **Never weaken a validator, guardrail, or test to make something pass.** If the optimizer and the replay validator disagree, the optimizer is guilty until proven otherwise. If a test is red, print and read the failure output before patching.
+   **3a. Exception — a plan can be wrong, and this one demonstrably was.** Rule 3 assumes the specification is correct. V3 shipped an assertion that is mathematically impossible (F4/I7a), which under a literal reading of rule 3 would have sent an agent to "fix" a correct optimizer by deleting the neutrality or reserve constraint — the single most destructive change available. So: if a test contradicts a proof, **the proof wins and you change the test**, but you must (a) write the proof out in the commit message, (b) leave the test present and asserting the proven-correct behavior — never delete it. Never weaken a test merely because the code is hard to fix. There are exactly **four** constraints that may never be relaxed for any reason: energy balance (I24), battery transitions (I20), the reserve/capacity bounds (I21), and end-of-day neutrality (I26). If satisfying those is impossible, the answer is 422 — never a relaxed constraint.
+   **3b. V4 overrides V3.** Where the V4 change table in the header conflicts with older body text, V4 wins. If you find surviving V3 text that contradicts a V4 fix, that is a documentation bug — fix the text, do not implement the old behavior.
 4. **Never hardcode public sample data** — no sample note strings, scenario IDs, reference schedules, or sample numeric values anywhere under `app/`. Sample JSON lives only under `tests/data/` and `scripts/` as test input.
 5. **The replay validator (Section 11) and the 10 public reference costs are ground truth.**
 6. **Small commits.** Commit at every green slice with a message naming the slice.
@@ -53,13 +70,20 @@ Priority order enforced by the phase plan: correctness → optimality (free via 
 **Endpoints & status codes**
 - I1. `GET /health` → HTTP 200, body exactly `{"status":"ok"}`, ready within 60 s of process start.
 - I2. `POST /optimize-energy` — exact path, accepts one scenario JSON, returns one result JSON.
-- I3. Malformed JSON body OR structurally invalid request (bad types, wrong counts, extra/missing fields, non-finite numbers) → **400** with body `{"error":"invalid_request","detail":"<safe field-path summary, never echoing input values>"}`. FastAPI's default `RequestValidationError` 422 MUST be overridden to 400.
+- I3. Malformed JSON body OR structurally invalid request (bad types, wrong counts, **missing** fields, non-finite numbers) → **400** with body `{"error":"invalid_request","detail":"<safe field-path summary, never echoing input values>"}`. FastAPI's default `RequestValidationError` 422 MUST be overridden to 400. **Unknown EXTRA fields are NOT a 400 — see I6.**
 - I4. Well-formed request that is semantically impossible (LP infeasible after a verified-correct interpretation) → **422** `{"error":"infeasible_scenario"}`.
-- I5. LLM ladder exhausted → **NEVER 500. Degrade instead**: every note whose interpretation could not be obtained or validated is reported as `no_op` (applies=false, adjustment null); the schedule is solved against whatever validated directives remain, replay-validated, and returned **200**. Rationale (score-dominance): the rubric explicitly penalizes 5xx on valid requests; a degraded-but-valid response preserves schema points, reliability points, and interpretation credit for every note that WAS correctly interpreted — and is fully correct whenever the garbled note was a genuine distractor. A 500 loses all of that and salvages nothing. Log the degradation server-side only; the response never advertises it. Any unexpected internal exception (a bug) → **500** `{"error":"internal_error"}`. No stack traces, no provider error bodies, no environment data — ever.
+- I5. **Provider failure of ANY kind never produces a 5xx.** This covers: missing/invalid `GROQ_API_KEY(S)`, every key exhausted or rate-limited, transport failure, provider 5xx, unparseable output, guardrail rejection, and ladder exhaustion or deadline breach. In every one of those cases: each note whose interpretation could not be obtained or validated is reported as `no_op` (applies=false, adjustment null); the schedule is solved against whatever validated directives remain, replay-validated, and returned **200**. Rationale (score-dominance): the rubric explicitly penalizes 5xx on valid requests; a degraded-but-valid response preserves schema points, reliability points, and interpretation credit for every note that WAS correctly interpreted — and is fully correct whenever the garbled note was a genuine distractor. A 500 loses all of that and salvages nothing. Log the degradation server-side only; the response never advertises it.
+  **I5a (F6 — do not degrade an interpretation you actually have).** Degrading to `no_op` is only for notes with NO guardrail-valid interpretation. If an interpretation passed guardrails but its directive cannot be APPLIED (LP infeasible, salvage dropped it), the entry is still reported with its extracted type/hours/values — only the optimizer drops it. Interpretation (25 pts) and Application (25 pts) are scored in separate categories, both against organizer ground truth, and the rubric contains no self-consistency check between the two. Reporting the extraction earns its interpretation credit even when the schedule cannot honor it; reporting `no_op` earns nothing. Strictly dominant.
+  Any unexpected internal exception (a genuine bug in our code, not the provider) → **500** `{"error":"internal_error"}`. No stack traces, no provider error bodies, no environment data — ever.
 
 **Request acceptance rules**
-- I6. `scenario_id`: string. `operator_notes`: 1–3 strings, each non-empty after strip, each ≤ 2000 chars. `hours`: exactly 24 entries whose `hour` values are exactly the set {0..23}. `battery`: all 5 fields present, finite, ≥ 0. All numeric fields reject NaN/Infinity (`allow_inf_nan=False`). All models `extra="forbid"`.
-- I7. Do NOT reject at the API layer: `initial_energy_kwh < minimum_energy_kwh` (feasible if hour 0 charges up — only E_after is constrained), zero capacity, zero rates, zero tariffs, zero demand, huge finite values. These are the LP's decisions. Pre-rejecting odd-but-valid scenarios loses robustness points.
+- I6. `scenario_id`: string. `operator_notes`: 1–3 strings, each non-empty after strip, each ≤ 2000 chars. `hours`: exactly 24 entries whose `hour` values are exactly the set {0..23}. `battery`: all 5 fields present, finite, ≥ 0. All numeric fields reject NaN/Infinity (`allow_inf_nan=False`).
+  **I6a (F3 — the strictness line, decided; do not re-litigate).** **Reject what the spec explicitly bounds. Tolerate what the spec is silent about.** All request models use `extra="ignore"`, NOT `extra="forbid"`. Unknown extra fields at any level are silently dropped and the request proceeds.
+  Why this is not a style preference: the Problem Statement defines 400 as "malformed JSON or structurally invalid request" and nowhere forbids additional properties. If the judge harness sends one undocumented field — a `request_id`, a `metadata`, a schema `version`, a trailing `notes_count` — `extra="forbid"` returns **400 on every single hidden case** and the submission scores near zero. The entire upside being protected is a fraction of the 2 "request validation" points, which are far more likely tested with wrong types, wrong counts and malformed JSON — all of which we still reject. This is the worst risk/reward ratio in the whole design; V3 had it backwards.
+  Still strictly rejected (spec-explicit): note count outside 1–3, `hours` length ≠ 24, duplicate/out-of-range `hour`, missing required fields, wrong types that cannot coerce, NaN/Infinity, negative values.
+- I7. Do NOT reject at the API layer: zero capacity, zero rates, zero tariffs, zero demand, `initial_energy_kwh < minimum_energy_kwh`, huge finite values. These are the LP's decisions, and it returns a controlled 422 for the impossible ones. Pre-rejecting odd-but-valid scenarios loses robustness points.
+  **I7a (F4 — correction; V3 got the mathematics wrong).** V3 claimed `initial_energy_kwh < minimum_energy_kwh` is "feasible if hour 0 charges up — only E_after is constrained". **That is false. It is unconditionally infeasible, and no charging schedule can rescue it.** Proof: end-of-day neutrality (I26) forces `E_after[23] = initial_energy_kwh`, and the reserve floor (I21) forces `E_after[23] ≥ active_reserve[23] ≥ minimum_energy_kwh`. Therefore `initial_energy_kwh ≥ minimum_energy_kwh` is a *necessary* condition for any feasible schedule. Verified empirically: the LP returns status=2 (infeasible) for this input, with and without an hour-0 charge window.
+  The required BEHAVIOR is unchanged — accept at the API layer, let the LP produce a controlled **422**. Only the rationale and the §12.3 test were wrong. **Agent: do not "fix" the optimizer when this test is red.** The two changes that would make it pass — dropping the neutrality equality or relaxing the reserve floor — each invalidate every hidden case. See the standing-rules amendment in §0.
 
 **Interpretation output rules**
 - I8. Exactly one `directive_interpretation` entry per operator note, emitted in `note_index` order 0..N−1, no gaps, no duplicates.
@@ -92,6 +116,18 @@ Priority order enforced by the phase plan: correctness → optimality (free via 
 - I28. `total_grid_kwh`, `total_cost_bdt`, `peak_grid_kwh` are computed FROM THE FINAL RETURNED hourly values (after canonicalization/rounding), so the judge's recomputation matches by construction. `scenario_id` echoes the request.
 - I29. Objective: minimize Σ grid_kwh[h] × tariff[h] AFTER applying all valid directives. Validity always beats cost.
 - I30. Judge tolerance is 0.01 kWh / 0.01 BDT. Internal replay uses ε = 1e-6 — we never rely on judge tolerance to hide bugs.
+- **I36 (F2 — emission precision and replay ε are ONE decision; changing either alone is a bug).** Emitted plan values carry **8 decimal places**; internal replay ε = 1e-6. The rule binding them: `ε ≥ 100 × (emission quantum)`. At 8 dp the quantum is 1e-8, rounding error per value ≤ 5e-9, worst accumulated error across an energy-balance row or a 24-step SOC walk ≈ 1.2e-7 — two orders of magnitude inside ε.
+  Measured on 477 feasible decimal-heavy scenarios, counting how often the service's own validator rejects a plan the judge would have accepted:
+
+  | emitted dp | internal ε | self-inflicted 500s | worst residual |
+  |---|---|---|---|
+  | 4 (V3) | 1e-6 | **105 / 477** | 1.0e-4 |
+  | 6 | 1e-6 | **3 / 477** | 1.0e-6 |
+  | **8 (V4)** | **1e-6** | **0 / 477** | 1.0e-8 |
+  | 4 | 1e-3 | 0 / 477 | 1.0e-4 |
+
+  The 10 public sample cases cannot detect this — their demand/solar/tariff values are integers, so every residual is exactly 0.0e+00 and 4 dp looks perfectly safe. **Passing all 10 public cases is not evidence that this is fixed.** Do not reduce the emitted precision to make output "look cleaner"; do not raise ε to paper over a real bug.
+- **I35 (F5 — global wall-clock deadline).** Every `/optimize-energy` request sets `deadline = t_start + LLM_DEADLINE_SECONDS` (default **20 s**, leaving ≥ 10 s of headroom under the judge's 30 s hard cap). Every LLM attempt is issued with `timeout = min(per_attempt_timeout, deadline − now)` and is not started at all if `deadline − now < 1.5 s`. On deadline breach the ladder stops immediately and I5 degradation runs. V3's claim that the ladder's worst case was "≈ 24 s" was arithmetically wrong: 6 s + 4 s (429 sleep) + 8 s + 8 s (corrective re-ask) + 6 s = **32 s**, and flow step 7's second re-ask on LP infeasibility pushes it past **40 s** — every one of those requests scored as a hard failure. A response is worthless after 30 s, so the deadline outranks every retry.
 
 **Operational**
 - I31. LLM (Groq) is called on the operator-note interpretation path of every non-cached request. Interpretation cache entries were themselves produced by the LLM.
@@ -164,14 +200,27 @@ Forbidden: LangChain/LangGraph, agent frameworks, databases, Redis, dotenv (read
 Environment variables (all read in `config.py`, with defaults):
 
 ```
-GROQ_API_KEY        (required; no default; service still boots without it, /health works,
-                     /optimize-energy returns controlled 500)
+GROQ_API_KEYS       comma-separated list of Groq keys, rotated per Section 7.3b.
+                    Whitespace around entries is stripped; blank entries dropped.
+GROQ_API_KEY        single-key fallback, read ONLY if GROQ_API_KEYS is unset/empty.
+                    (Both absent: the service still boots, /health returns ok, and
+                     /optimize-energy returns a DEGRADED 200 per I5 — never a 500.)
 PORT                default 8000
 PRIMARY_MODEL       default "openai/gpt-oss-20b"
 FALLBACK_MODEL      default "openai/gpt-oss-120b"
-LLM_TIMEOUT_PRIMARY   default 6.0   (seconds)
-LLM_TIMEOUT_FALLBACK  default 8.0
+LLM_TIMEOUT_PRIMARY    default 6.0   (seconds)
+LLM_TIMEOUT_FALLBACK   default 8.0
+LLM_DEADLINE_SECONDS   default 20.0  (I35 global wall-clock budget for the whole ladder)
+PROMPT_COMPACT         default 0     (1 = trim the few-shot bank; TPM escape hatch only)
+
+# Optional cross-provider rung (F7). Left unset, the ladder is Groq-only and the
+# service behaves exactly as if these did not exist — no code path changes.
+ALT_BASE_URL        e.g. an OpenAI-compatible /v1 base URL
+ALT_API_KEY
+ALT_MODEL
 ```
+
+**F1 correction (was contradictory in V3):** the missing-key behavior above is **degraded 200, not 500**. V3's §4 text said "controlled 500", V3's §16 README text said "controlled 500 after ladder", and V3's own I5 and §7.3 said degrade-to-200. Three places, two behaviors. One rule now: **a 500 means our code has a bug. Nothing about the provider, the keys, or the quota can produce one.**
 
 ---
 
@@ -309,30 +358,77 @@ Body:
   "temperature": 0,
   "seed": 7,
   "reasoning_effort": "low",
-  "max_completion_tokens": 900,
+  "max_completion_tokens": 1500,
   "response_format": {"type": "json_schema",
     "json_schema": {"name": "note_ir", "strict": true, "schema": <IR SCHEMA 7.4>}},
   "messages": [{"role":"system","content": <7.5>}, {"role":"user","content": <7.6>}]
 }
 ```
 
-ONE call interprets ALL notes of the request. The model sees ONLY: the six directive definitions, the time/factor conventions, `battery capacity_kwh` (sole scenario number — needed so "half of battery capacity" is classifiable; arithmetic still happens in code), and the sanitized notes. Demand/solar/tariff arrays, initial energy, rates, scenario_id are NEVER sent (token cost against TPM ceilings + injection surface, zero semantic value).
+`max_completion_tokens` is **1500**, not V3's 900: on gpt-oss models Groq counts reasoning tokens against this budget, so a 900 cap can truncate mid-JSON on a 3-note request. A truncated response is an unparseable one — it burns a whole rung and several seconds of the deadline to produce nothing. Unused budget costs nothing.
 
-### 7.3 Fallback ladder (exact order; total worst case ≈ 24 s < 30 s hard cap)
+ONE call interprets ALL notes of the request. The model sees ONLY: the six directive definitions, the time/factor conventions, **all five `battery` fields**, and the sanitized notes. Demand/solar/tariff arrays and `scenario_id` are NEVER sent (token cost against TPM ceilings + injection surface, zero semantic value).
+
+**F8 — why all five battery fields, not just capacity.** V3 sent `capacity_kwh` alone. SAMPLE-03 proves the organizer writes reserves as a fraction of a battery parameter ("50% of the battery capacity" → 100 kWh), so relative phrasing is confirmed in scope — and the moment a hidden note says *"keep the battery at its starting level"*, *"stay above twice the usual minimum"*, or *"do not draw more than the hourly discharge limit"*, a capacity-only prompt cannot answer it and the note is silently lost. The five fields cost roughly 20 tokens. Arithmetic still happens exclusively in code: the model reports `reserve_value` + `reserve_unit` and never multiplies. Extend `reserve_unit` to the enum `["kwh","percent_of_capacity","percent_of_initial","percent_of_minimum"]` and have `guardrails.py` do each conversion.
+
+### 7.3 Fallback ladder (deadline-bounded; V3's fixed 5-rung ladder could exceed the 30 s cap — F5)
+
+**Every rung is governed by the I35 deadline.** Before each attempt: `remaining = deadline − now`; if `remaining < 1.5 s`, stop the ladder and degrade. Issue the call with `timeout = min(rung_timeout, remaining)`. The deadline, not the rung count, is what bounds this design.
 
 ```
-attempt 1: PRIMARY_MODEL,  timeout LLM_TIMEOUT_PRIMARY (6 s)
-  on 429: sleep min(Retry-After, 4 s) then move on
-attempt 2: FALLBACK_MODEL, timeout LLM_TIMEOUT_FALLBACK (8 s)
-  (also used for the ONE corrective re-ask after a guardrail semantic failure or LP infeasibility,
-   with the violation list appended to the user message)
-attempt 3: PRIMARY_MODEL,  timeout 6 s   (transient-blip recovery)
-exhausted → CONTROLLED DEGRADE (I5): from the attempt with the most guardrail-valid notes,
-keep those notes' directives; report every unresolved note as no_op; solve, replay, return 200.
-If no attempt yielded usable output at all (provider fully down), ALL notes degrade to no_op
-and the base-rules optimal schedule is returned — still a valid, replay-checked 200.
+deadline = t_start + LLM_DEADLINE_SECONDS   (20 s)
+
+rung 1: PRIMARY_MODEL,  key = next_healthy(),  timeout 6 s
+rung 2: PRIMARY_MODEL,  key = next_healthy(),  timeout 6 s
+        — taken ONLY if rung 1 failed for a KEY-ATTRIBUTABLE reason (429 / 401 / 403 /
+          provider 5xx). A schema or guardrail failure is the MODEL's fault, not the
+          key's; that case skips to rung 3. Retrying a bad answer on a fresh key
+          just burns the deadline.
+rung 3: FALLBACK_MODEL, key = next_healthy(),  timeout 8 s
+rung 4: corrective re-ask — FALLBACK_MODEL, next_healthy(), timeout 8 s, with the
+        machine-generated violation list appended to the user message.
+        Fires AT MOST ONCE PER REQUEST, for either cause (guardrail semantic failure
+        OR LP infeasibility). V3 allowed one of each, which is what broke the budget.
+rung 5: ALT provider (ALT_BASE_URL/ALT_API_KEY/ALT_MODEL), timeout 6 s — skipped
+        entirely when unconfigured.
+
+any rung: deadline breached → stop immediately, degrade (I5)
+exhausted → CONTROLLED DEGRADE (I5)
 ```
-Transport failure, non-200, JSON parse failure, and guardrail failure all advance the ladder. Never loop more than these attempts. Never fabricate a NON-no_op interpretation deterministically — inventing directives risks the C1 disqualification and wrong answers; no_op degradation invents nothing (it is a supported type, the LLM remains the interpreter in the architecture, and the fallback fires only on its failure — document this in the README known-limitations section).
+
+Degrade semantics: from the attempt with the **most guardrail-valid notes**, keep those notes' directives; report every still-unresolved note as `no_op`; solve, replay, return **200**. If no attempt yielded usable output at all, ALL notes degrade to `no_op` and the base-rules optimal schedule is returned — still a valid, replay-checked 200. Note the interaction with **I5a**: a note that WAS interpreted successfully but whose directive the LP could not apply keeps its real interpretation in the response; only genuinely uninterpreted notes become `no_op`.
+
+Transport failure, non-200, JSON parse failure, and guardrail failure all advance the ladder. Never fabricate a NON-no_op interpretation deterministically — inventing directives risks the C1 disqualification and produces wrong answers; `no_op` degradation invents nothing (it is a supported type, the LLM remains the interpreter in the architecture, and the fallback fires only on its failure — document this in the README known-limitations section).
+
+### 7.3b Multi-key rotation (F7) — exact behavior
+
+`GROQ_API_KEYS` holds N keys. `config.py` parses them once into a list; `llm_interpreter.py` owns a small in-process pool. **Keys are referenced in logs only by index (`key_idx=2`) — never by value, prefix, suffix, or length.**
+
+Per-key state: `cooldown_until: float` (monotonic clock) and `consecutive_failures: int`.
+
+```
+next_healthy():
+    round-robin from a rotating cursor over keys with cooldown_until <= now.
+    Round-robin (not always-first) spreads token spend evenly, which is what
+    keeps any single key off its TPM ceiling. If every key is cooling down,
+    return the one whose cooldown expires soonest ONLY if that expiry is
+    within the deadline; otherwise return None -> degrade.
+
+on 429:  cooldown_until = now + min(Retry-After if present else 8, 10)
+         then IMMEDIATELY try the next healthy key. Do NOT sleep.
+on 401/403: cooldown_until = now + 3600  (bad/revoked key; take it out of play)
+on provider 5xx / transport error: cooldown_until = now + 2
+on success: consecutive_failures = 0
+```
+
+**The sleep-elimination point is the whole reason this is worth building.** V3 slept up to 4 s on a 429 with nothing else to do. With N keys there is no reason to ever sleep on a 429 — hop to the next key and keep the deadline for useful work.
+
+> **⚠️ READ THIS BEFORE ASSUMING ROTATION SOLVES QUOTA — it may buy you nothing.**
+> **Groq rate limits are enforced at the ORGANIZATION level, not per API key.** Several keys minted inside one Groq account share one pool of RPM/RPD/TPM, and rotating among them changes nothing about 429s. Rotation multiplies quota **only if the keys belong to genuinely separate Groq accounts/organizations.**
+> **Human action item, before the round:** confirm which you have. Open each key's Groq console and check whether they resolve to the same organization. If they do, rotation is worth building anyway — it survives one key being revoked, rate-limited individually, or pasted in wrong — but **it is not a quota strategy**, and the paid-tier upgrade in Section 13 remains mandatory rather than optional.
+> **Rotation never protects against a Groq platform outage.** Every key shares that failure domain. That is what rung 5 is for.
+
+`/health` must stay exactly `{"status":"ok"}` — it never reports key count, key health, or provider status (I1, and it is free information for nobody).
 
 ### 7.4 IR JSON schema (strict mode requires additionalProperties:false and all fields required; nullability via anyOf)
 
@@ -356,7 +452,8 @@ Transport failure, non-200, JSON parse failure, and guardrail failure all advanc
       "solar_percent_value":   {"anyOf": [{"type":"number"},{"type":"null"}]},
       "solar_percent_meaning": {"anyOf": [{"type":"string","enum":["remaining","reduced_by"]},{"type":"null"}]},
       "reserve_value":         {"anyOf": [{"type":"number"},{"type":"null"}]},
-      "reserve_unit":          {"anyOf": [{"type":"string","enum":["kwh","percent_of_capacity"]},{"type":"null"}]},
+      "reserve_unit":          {"anyOf": [{"type":"string","enum":["kwh","percent_of_capacity",
+                                "percent_of_initial","percent_of_minimum"]},{"type":"null"}]},
       "max_grid_kwh":          {"anyOf": [{"type":"number"},{"type":"null"}]},
       "explanation":           {"type": "string"}
     }}}}
@@ -405,7 +502,35 @@ A window "from X to Y" means start_hour = X and end_hour_exclusive = Y; report t
 hours exactly as stated, do not expand or adjust them. "until midnight" -> end_hour_exclusive
 = 24. A single stated hour ("at 5 PM") -> start_hour 17, end_hour_exclusive 18.
 
-Battery capacity for this scenario: {capacity} kWh (context only; never compute with it).
+Window phrasings that do not state both ends:
+  "all day" / "the entire day" / "throughout today" / "for the whole scheduling day"
+      -> start_hour 0, end_hour_exclusive 24.
+  open-ended START ("from 6 PM onwards", "after 6 PM", "6 PM until end of day",
+      "for the rest of the day from 6 PM") -> start_hour 18, end_hour_exclusive 24.
+  open-ended END ("before 6 AM", "until 6 AM", "up to 6 AM", "by 6 AM")
+      -> start_hour 0, end_hour_exclusive 6.
+  DURATION ("for three hours starting at 2 PM", "for two hours from 9 AM")
+      -> start_hour 14, end_hour_exclusive 17 / start_hour 9, end_hour_exclusive 11.
+  A window may cross midnight ("10 PM until 1 AM" -> start_hour 22,
+      end_hour_exclusive 1). Report it exactly that way; the code handles the wrap.
+
+Vague time words, ONLY when the note is otherwise clearly one of the five directives:
+  "overnight" -> start_hour 22, end_hour_exclusive 6   (crosses midnight)
+  "early morning" -> 0 to 6      "the morning" -> 6 to 12
+  "the afternoon" -> 12 to 18    "the evening" / "late evening" -> 18 to 24
+Never answer no_op just because the window is vague. If the note plainly states a
+supported operating condition, classify it and give your best whole-hour window:
+a wrong window still earns the relevance and directive-type credit, whereas no_op
+earns nothing. Answer no_op only when the note is not one of the five conditions.
+
+Battery parameters for this scenario (context for classifying relative phrasing
+such as "half the battery" or "its starting level" — NEVER compute with them,
+report the value and unit as stated and let the system do the arithmetic):
+  capacity_kwh            {capacity}
+  initial_energy_kwh      {initial}
+  minimum_energy_kwh      {minimum}
+  max_charge_kwh_per_hour {max_charge}
+  max_discharge_kwh_per_hour {max_discharge}
 
 Each note maps to exactly one directive type. If a note appears to contain two supported
 rules, choose the single dominant one. Produce exactly one entry per note, note_index
@@ -428,6 +553,8 @@ Paraphrase robustness is a separately scored 5-pt line item — one canonical ex
 - 1 South-Asian-English phrasing (the organizer is BUP; hidden notes may not be polished American English): `"Solar will be reduced by 60% from 6 PM upto 9 PM"` → solar_reduction, windows [{18,21}], value 60, reduced_by. ("upto" = "until", end-exclusive.)
 - 2 near-miss distractors → no_op: `"Please reduce AC usage in the library block this afternoon."` and `"The diesel generator's fuel delivery paperwork must be filed today."` — energy-adjacent but not one of the five directives. Most competing teams' models will over-trigger on anything energy-sounding; these two examples are what separates a top-50 interpreter.
 - 1 boundary-hours example: `"No discharging between 11 PM and midnight"` → windows [{23,24}].
+- **F8 — 4 window-phrasing examples** (these are the hidden-language shapes V3 had no coverage for): `"Charging is unavailable all day"` → no_charge_window, windows [{0,24}]; `"Grid import is capped at 150 kWh from 7 PM onwards"` → max_grid_window, windows [{19,24}], 150; `"Do not discharge for three hours starting at 2 PM"` → no_discharge_window, windows [{14,17}]; `"Keep 100 kWh in reserve overnight"` → minimum_battery_reserve, windows [{22,6}], 100, kwh.
+- **F8 — 1 non-capacity relative reserve:** `"Keep the battery at its starting level between 6 PM and 9 PM"` → minimum_battery_reserve, windows [{18,21}], reserve_value 100, reserve_unit `percent_of_initial`.
 
 Token cost ≈ +600–800 input tokens. This is affordable on the paid dev tier (Section 13) and worth the paraphrase points. Provide `PROMPT_COMPACT=1` env flag that drops the bank back to one-example-per-type — the escape hatch ONLY if stuck on the free tier's TPM ceiling.
 
