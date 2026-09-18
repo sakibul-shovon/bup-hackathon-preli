@@ -89,7 +89,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · 🔴 blocked
 | L2 | `optimizer.py` (own session) | ✅ | solves; 24-var LP returns status 0 |
 | L3 | `validator.py` (SEPARATE session) | ✅ | negative tests catch all 10 replay checks |
 | L4 | `test_public_cases.py` — **THE ANCHOR** | ✅ | **10/10 replay-clean AND cost within 0.01 of reference** |
-| L5 | `llm_interpreter.py` + key rotation + deadline | ⬜ | `test_provider.py` green incl. rotation + degrade |
+| L5 | `llm_interpreter.py` + key rotation + deadline | ✅ | `test_provider.py` green incl. rotation + degrade |
 | L6 | `guardrails.py` | ⬜ | per-note violation tracking works |
 | L7 | `main.py` orchestration + degrade + salvage | ⬜ | full pipeline 200s end-to-end |
 | L8 | `test_precision.py` + `test_api.py` + `test_adversarial.py` | ⬜ | full suite green |
