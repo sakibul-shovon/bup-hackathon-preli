@@ -5,6 +5,10 @@ name: Deploy to VPS
 # completely separate from the syntax-carnival-website stack already running
 # on that box. Never touches its containers, network, ports, or config.
 
+concurrency:
+  group: gridwise-vps-deploy
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
@@ -30,8 +34,7 @@ jobs:
             cd /opt/gridwise/repo
             GIT_SSH_COMMAND='ssh -i /root/.ssh/gridwise_deploy_key -o StrictHostKeyChecking=no' git pull origin main
             docker build -t gridwise:prod .
-            docker stop gridwise-app 2>/dev/null || true
-            docker rm gridwise-app 2>/dev/null || true
+            docker rm -f gridwise-app 2>/dev/null || true
             docker run -d --name gridwise-app --restart unless-stopped -p 8000:8000 \
               -e GROQ_API_KEYS="${{ secrets.GROQ_API_KEYS }}" gridwise:prod
             sleep 3
