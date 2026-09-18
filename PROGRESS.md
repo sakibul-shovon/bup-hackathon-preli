@@ -151,3 +151,24 @@ Append here, newest first. Lead clears them.
 - [x] No secret in repo, logs, responses, or image history (also checked VPS container logs after real-key runs -- only `key_idx=`, never a key value)
 - [ ] README quickstart replayed in a clean shell -- Dev B verified an earlier version (B6); the quickstart/example-response section was rewritten after that (real bugs fixed), not yet re-replayed clean
 - [ ] Video ≤ 3:00 and accessible
+
+## 🔔 DO NOT FORGET — right after the submission deadline
+
+The Participant Guide requires the repo to stay **private during the event,
+public after the deadline**. Docker fallback image is pushed and verified
+(pull + run + /health all confirmed working) at
+`ghcr.io/sakibul-shovon/bup-hackathon-preli:final` (also tagged `:latest`),
+but **deliberately left PRIVATE for now**, same as the repo. Right after the
+deadline, do BOTH of these (GitHub blocks the second one via API — it's a
+manual UI action only):
+
+1. Make the GitHub repo public.
+2. Go to https://github.com/users/sakibul-shovon/packages/container/package/bup-hackathon-preli
+   → **Package settings** → **Danger Zone** → **Change package visibility** → **Public**.
+
+Without step 2, a judge's `docker pull` will get `unauthorized` even though
+the repo itself is public -- confirmed by testing: making the package
+"Public" in its own settings did NOT immediately unblock an anonymous pull
+in this session (GitHub may also require the linked repo to already be
+public before the package visibility change takes full effect, or there is
+propagation delay -- re-test with `docker pull` after doing both steps).
