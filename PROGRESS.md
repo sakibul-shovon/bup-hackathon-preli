@@ -131,7 +131,7 @@ Append here, newest first. Lead clears them.
 
 | Time | Who | Blocker | Resolved? |
 |---|---|---|---|
-| | | | |
+| now | A | L10 deploy needs: Docker Desktop running (currently down), a container registry login, an always-on hosting target + account, an uptime monitor, a real GROQ key, and a phone-hotspot smoke test -- none of which this session has. Asked the user how to proceed. | Open |
 
 ---
 
