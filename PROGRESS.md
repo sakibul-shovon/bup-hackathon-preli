@@ -94,7 +94,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · 🔴 blocked
 | L7 | `main.py` orchestration + degrade + salvage | ✅ | full pipeline 200s end-to-end |
 | L8 | `test_precision.py` + `test_api.py` + `test_adversarial.py` | ✅ | full suite green |
 | L9 | `scripts/fuzz.py` + live paraphrase holdout | ✅ | 100% replay-valid, misses investigated |
-| L10 | Deploy + external smoke test | ⬜ | public URL answers from a different network |
+| L10 | Deploy + external smoke test | 🟡 | public URL answers from a different network |
 
 ### Dev B — support, docs, deploy artifacts
 
@@ -131,7 +131,7 @@ Append here, newest first. Lead clears them.
 
 | Time | Who | Blocker | Resolved? |
 |---|---|---|---|
-| now | A | L10 deploy needs: Docker Desktop running (currently down), a container registry login, an always-on hosting target + account, an uptime monitor, a real GROQ key, and a phone-hotspot smoke test -- none of which this session has. Asked the user how to proceed. | Open |
+| now | A | L10: Docker Desktop started and image built/verified locally (linux/amd64, F9 confirmed; /health 200; all 10 public cases return 200 never 500 with no key, F1 confirmed). Push to a registry, deploy to an always-on host, uptime monitor, and the phone-hotspot smoke test still need the user directly (credentials + physical access this session doesn't have). User chose to handle push/deploy themselves. | Partially resolved -- local build done, push/deploy handed off |
 
 ---
 
