@@ -18,6 +18,37 @@ not create her file.
 
 ---
 
+## 🔁 RESUMING IN A NEW WINDOW — paste this, always, instead of guessing which task
+
+You never need to remember which task you were on. `PROGRESS.md` is the single source of
+truth for what's done — every task below ends by ticking a box there. Opening a fresh
+window with no memory of this conversation? Paste exactly this:
+
+```
+Read PROGRESS.md's "Dev A — the spine" table to see which tasks are already ✅.
+Read AGENT_TASKS_LEAD.md in full.
+
+Find the FIRST task in that table that is NOT ✅ (an unstarted ⬜ or a stuck 🔴 counts).
+Before starting it, run its previous task's Verify command yourself to confirm the
+codebase is actually in the state the table claims — the table can be stale if a commit
+was interrupted. If it fails, fix that first and correct the table; only then start the
+new task.
+
+Execute that one task exactly as written in AGENT_TASKS_LEAD.md, including the standing
+preamble. Do not run ahead to the next one.
+
+When your task's Verify command passes: commit your files, then edit PROGRESS.md and
+change that task's row from ⬜/🟡/🔴 to ✅. Commit PROGRESS.md in the SAME commit as the
+task's files (you own PROGRESS.md, so this never conflicts with Dev B). Then stop and
+report what you did.
+```
+
+This is also exactly what to paste after any crash, closed window, or "it's been an hour,
+what's the state." It costs nothing extra when nothing is stale, and it catches a task that
+silently failed halfway.
+
+---
+
 ## Standing preamble — paste this at the TOP of every task prompt
 
 ```
@@ -39,6 +70,10 @@ Hard rules for this task:
   write the proof in the commit message and never delete the test (standing rule 3a).
 - Never relax energy balance (I24), battery transitions (I20), reserve/capacity bounds
   (I21), or end-of-day neutrality (I26). If they cannot be satisfied, the answer is 422.
+- When this task's Verify command passes: commit, then edit PROGRESS.md and flip this
+  task's checkbox to ✅ in the same commit. This is not optional busywork — it is the only
+  record of progress that survives a closed window, so skipping it makes the task
+  effectively invisible to whoever (or whichever session) picks this up next.
 ```
 
 ---

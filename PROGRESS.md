@@ -18,6 +18,11 @@ disagree, the plan wins.
 
 Neither of you needs to read the other's task file. They are designed to never overlap.
 
+**Opening a NEW window partway through?** Don't hunt for which task you were on — both task
+files have a "🔁 Resuming in a new window" prompt near the top. Paste that instead of a
+specific task number; it reads the checkboxes below (or in `AGENT_TASKS_DEV2.md` for Dev B)
+and picks up the first unfinished one itself.
+
 ---
 
 ## 🔒 THE ONE RULE THAT PREVENTS ALL CONFLICTS

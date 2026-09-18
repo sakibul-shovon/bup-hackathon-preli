@@ -20,6 +20,22 @@ Your tasks are worth real marks, not busywork:
    anything. The competition rules forbid hardcoding the public samples, and hidden test
    notes are worded differently anyway. Write fresh sentences in your own words.
 3. **Never put a real API key in any file.** Only the *names* of variables, never values.
+4. **When a task's Verify step passes, change that task's ⬜ to ✅ in this file, in the same
+   commit as the task's files.** This file is your own progress record — if you close this
+   window and open a new one later (or the lead asks "how far are you"), the ✅ marks are
+   the only way anyone knows without re-asking you.
+
+### 🔁 Resuming in a new window
+
+Don't try to remember which task you left off on. Paste this instead:
+
+```
+Read AGENT_TASKS_DEV2.md in full. Find the FIRST task (B0-B6) that is still ⬜ (or 🔴).
+Before starting it, quickly re-run the previous task's Verify command to confirm it
+actually still passes — the checkbox can be stale if a commit was interrupted.
+Execute that one task exactly as written, commit your files, flip its box to ✅ in the
+same commit, then stop and report what you did.
+```
 
 ### Your files
 
