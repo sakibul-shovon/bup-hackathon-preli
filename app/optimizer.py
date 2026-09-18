@@ -115,6 +115,20 @@ def _solve_subset(subset, base_solar, base_minimum, base_max_charge, base_max_di
     return solve_lp(demand, eff_solar, tariff, e0, cap, reserve, grid_cap, charge_ub, discharge_ub)
 
 
+def solve_full(directives: list[NormalizedDirective], base_solar, base_minimum, base_max_charge,
+                base_max_discharge, demand, tariff, e0, cap):
+    """Solve with exactly the given directive set, no salvage. Returns the raw
+    scipy OptimizeResult (res.status: 0 optimal, 2 infeasible) so a caller can
+    decide what to do next -- e.g. main.py's Section 6 step 7 tries this first,
+    then (on infeasibility) fires the corrective LLM re-ask and tries again with
+    the corrected directives, and only falls back to optimize()'s salvage below
+    if that also fails.
+    """
+    applicable = [d for d in directives if d.directive_type != "no_op"]
+    return _solve_subset(applicable, base_solar, base_minimum, base_max_charge,
+                          base_max_discharge, demand, tariff, e0, cap)
+
+
 def optimize(directives: list[NormalizedDirective], base_solar, base_minimum, base_max_charge,
              base_max_discharge, demand, tariff, e0, cap):
     """Solve with all applicable directives; on infeasibility, salvage per Section 10.5.
@@ -124,8 +138,8 @@ def optimize(directives: list[NormalizedDirective], base_solar, base_minimum, ba
     """
     applicable = [d for d in directives if d.directive_type != "no_op"]
 
-    res = _solve_subset(applicable, base_solar, base_minimum, base_max_charge,
-                         base_max_discharge, demand, tariff, e0, cap)
+    res = solve_full(directives, base_solar, base_minimum, base_max_charge,
+                      base_max_discharge, demand, tariff, e0, cap)
     if res.status == 0:
         plan, totals = canonicalize(res, demand, tariff, e0)
         return plan, totals, applicable, []

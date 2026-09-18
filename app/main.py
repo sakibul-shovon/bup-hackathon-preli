@@ -1,12 +1,17 @@
-"""FastAPI app: routes, middleware, exception handlers (plan Section 9.2)."""
+"""FastAPI app: routes, middleware, exception handlers, orchestration (plan Section 6, 9)."""
 import logging
+import time
+from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from app.schemas import InfeasibleError
+from app import config, llm_interpreter, optimizer, validator
+from app.directives import build_interpretation_array
+from app.schemas import InfeasibleError, OptimizeRequest
 
 log = logging.getLogger("gridwise")
 
@@ -34,7 +39,15 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http_client = httpx.AsyncClient()
+    app.state.key_pool = llm_interpreter.create_key_pool()
+    yield
+    await app.state.http_client.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(BodySizeLimitMiddleware)
 
 
@@ -72,6 +85,93 @@ async def health():
     return {"status": "ok"}
 
 
+def _by_hour(payload: OptimizeRequest) -> list:
+    idx = {h.hour: h for h in payload.hours}
+    return [idx[i] for i in range(24)]
+
+
+async def _resolve_feasible_directives(directives, notes, battery, base_solar, demand, tariff,
+                                        e0, cap, http_client, key_pool, deadline, corrective_used):
+    """Section 6 step 7: try the current interpretation; on LP infeasibility fire
+    AT MOST ONE corrective LLM re-ask (shared budget with the guardrail-triggered
+    rung 4 inside interpret_notes, tracked via `corrective_used`) before ever
+    falling back to salvage. Returns (directives_to_optimize, corrective_used).
+    """
+    res = optimizer.solve_full(directives, base_solar, battery.minimum_energy_kwh,
+                                battery.max_charge_kwh_per_hour, battery.max_discharge_kwh_per_hour,
+                                demand, tariff, e0, cap)
+    if res.status == 0 or corrective_used or len(key_pool) == 0:
+        return directives, corrective_used
+
+    corrective_result = await llm_interpreter.corrective_reask_infeasible(
+        notes, battery, http_client, key_pool, deadline)
+    corrective_used = True
+
+    res2 = optimizer.solve_full(corrective_result.directives, base_solar, battery.minimum_energy_kwh,
+                                 battery.max_charge_kwh_per_hour, battery.max_discharge_kwh_per_hour,
+                                 demand, tariff, e0, cap)
+    if res2.status == 0:
+        return corrective_result.directives, corrective_used
+
+    orig_resolved = sum(1 for d in directives if d.directive_type != "no_op")
+    corr_resolved = sum(1 for d in corrective_result.directives if d.directive_type != "no_op")
+    if corr_resolved > orig_resolved:
+        return corrective_result.directives, corrective_used
+    return directives, corrective_used
+
+
 @app.post("/optimize-energy")
-async def optimize_energy(request: Request):
-    raise NotImplementedError
+async def optimize_energy(payload: OptimizeRequest, http_request: Request):
+    from app.summary import build_summary  # deferred: teammate-owned module
+
+    deadline = time.monotonic() + config.LLM_DEADLINE_SECONDS  # I35
+    http_client = http_request.app.state.http_client
+    key_pool = http_request.app.state.key_pool
+    battery = payload.battery
+
+    ordered = _by_hour(payload)
+    solar = [float(h.solar_kwh) for h in ordered]
+    demand = [float(h.demand_kwh) for h in ordered]
+    tariff = [float(h.tariff_bdt_per_kwh) for h in ordered]
+    e0 = battery.initial_energy_kwh
+    cap = battery.capacity_kwh
+
+    interpret_result = await llm_interpreter.interpret_notes(
+        payload.operator_notes, battery, http_client, key_pool, deadline)
+
+    directives, _ = await _resolve_feasible_directives(
+        interpret_result.directives, payload.operator_notes, battery, solar, demand, tariff,
+        e0, cap, http_client, key_pool, deadline, interpret_result.used_corrective_reask)
+
+    hourly_plan, totals, _kept, _dropped = optimizer.optimize(
+        directives, solar, battery.minimum_energy_kwh, battery.max_charge_kwh_per_hour,
+        battery.max_discharge_kwh_per_hour, demand, tariff, e0, cap)
+
+    plan_dict = {"hourly_plan": hourly_plan, **totals}
+    shipped = validator.validate_and_ship(payload, directives, plan_dict)
+
+    hourly = shipped["hourly_plan"]
+    peak_hour = max(range(24), key=lambda h: hourly[h]["grid_kwh"])
+    charge_hours = [h["hour"] for h in hourly if h["battery_action"] == "charge"]
+    discharge_hours = [h["hour"] for h in hourly if h["battery_action"] == "discharge"]
+    applied_types = [d.directive_type for d in directives if d.directive_type != "no_op"]
+
+    plan_summary = build_summary(
+        total_grid_kwh=shipped["total_grid_kwh"],
+        total_cost_bdt=shipped["total_cost_bdt"],
+        peak_grid_kwh=shipped["peak_grid_kwh"],
+        peak_hour=peak_hour,
+        charge_hours=charge_hours,
+        discharge_hours=discharge_hours,
+        applied_types=applied_types,
+    )
+
+    return {
+        "scenario_id": payload.scenario_id,
+        "directive_interpretation": build_interpretation_array(directives),
+        "hourly_plan": hourly,
+        "total_grid_kwh": shipped["total_grid_kwh"],
+        "total_cost_bdt": shipped["total_cost_bdt"],
+        "peak_grid_kwh": shipped["peak_grid_kwh"],
+        "plan_summary": plan_summary,
+    }
