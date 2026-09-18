@@ -143,18 +143,26 @@ async def optimize_energy(payload: OptimizeRequest, http_request: Request):
         interpret_result.directives, payload.operator_notes, battery, solar, demand, tariff,
         e0, cap, http_client, key_pool, deadline, interpret_result.used_corrective_reask)
 
-    hourly_plan, totals, _kept, _dropped = optimizer.optimize(
+    hourly_plan, totals, kept, _dropped = optimizer.optimize(
         directives, solar, battery.minimum_energy_kwh, battery.max_charge_kwh_per_hour,
         battery.max_discharge_kwh_per_hour, demand, tariff, e0, cap)
 
     plan_dict = {"hourly_plan": hourly_plan, **totals}
-    shipped = validator.validate_and_ship(payload, directives, plan_dict)
+    # Validate against `kept`, not the full `directives` list: the optimizer's own
+    # salvage (Section 10.5) may have legitimately dropped a directive it could not
+    # satisfy, so the shipped plan was never built to honor it. Replaying the full
+    # list here would manufacture a spurious violation on a directive-by-design
+    # (not a bug), push max_violation past the trivial-plan tier, and raise
+    # ValidatorInternalError -> 500 even though the plan the optimizer actually
+    # returned is completely valid. F6/I5a's "report the full interpretation" only
+    # applies to directive_interpretation below, never to what gets validated.
+    shipped = validator.validate_and_ship(payload, kept, plan_dict)
 
     hourly = shipped["hourly_plan"]
     peak_hour = max(range(24), key=lambda h: hourly[h]["grid_kwh"])
     charge_hours = [h["hour"] for h in hourly if h["battery_action"] == "charge"]
     discharge_hours = [h["hour"] for h in hourly if h["battery_action"] == "discharge"]
-    applied_types = [d.directive_type for d in directives if d.directive_type != "no_op"]
+    applied_types = [d.directive_type for d in kept if d.directive_type != "no_op"]
 
     plan_summary = build_summary(
         total_grid_kwh=shipped["total_grid_kwh"],

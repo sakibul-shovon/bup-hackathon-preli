@@ -4,10 +4,12 @@ whole submission: one undocumented judge field must never 400.
 """
 import json
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app import main as main_module
+from app.llm_interpreter import KeyPool
 from app.main import app
 
 
@@ -236,3 +238,55 @@ class TestOther:
         for r in responses:
             for needle in forbidden:
                 assert needle not in r.text, f"leaked {needle!r} in a {r.status_code} response"
+
+
+class TestSalvageDoesNotCrashTheValidator:
+    """Regression: main.py used to validate the shipped plan against the FULL
+    directive list even after optimizer.optimize()'s own salvage (Section 10.5)
+    legitimately dropped one of them. Replaying the full list manufactured a
+    spurious violation on a directive that was dropped by design, pushed
+    max_violation past the trivial-plan tier, and raised
+    ValidatorInternalError -> 500 -- even though the plan the optimizer
+    actually returned was completely valid. Found via an independent QA
+    report's reproduction steps; confirmed directly against this codebase
+    before treating it as real."""
+
+    def test_salvaged_directive_ships_200_not_500(self):
+        payload = {
+            "scenario_id": "SALVAGE-REGRESSION",
+            "operator_notes": ["Battery charging is unavailable all day.",
+                                "Keep at least 180 kWh in reserve at noon."],
+            "battery": {
+                "capacity_kwh": 200.0, "initial_energy_kwh": 100.0, "minimum_energy_kwh": 20.0,
+                "max_charge_kwh_per_hour": 50.0, "max_discharge_kwh_per_hour": 50.0,
+            },
+            "hours": [{"hour": h, "demand_kwh": 50.0, "solar_kwh": 0.0, "tariff_bdt_per_kwh": 10.0}
+                      for h in range(24)],
+        }
+
+        def handler(request):
+            ir = {"notes": [
+                {"note_index": 0, "directive_type": "no_charge_window",
+                 "windows": [{"start_hour": 0, "end_hour_exclusive": 24}],
+                 "solar_percent_value": None, "solar_percent_meaning": None,
+                 "reserve_value": None, "reserve_unit": None, "max_grid_kwh": None,
+                 "explanation": "no charging all day"},
+                {"note_index": 1, "directive_type": "minimum_battery_reserve",
+                 "windows": [{"start_hour": 12, "end_hour_exclusive": 13}],
+                 "solar_percent_value": None, "solar_percent_meaning": None,
+                 "reserve_value": 180, "reserve_unit": "kwh", "max_grid_kwh": None,
+                 "explanation": "reserve at noon -- unreachable with no charging all day"},
+            ]}
+            return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(ir)}}]})
+
+        with TestClient(main_module.app) as c:
+            c.app.state.key_pool = KeyPool(["fake-key"])
+            c.app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            r = c.post("/optimize-energy", json=payload)
+
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # F6/I5a: the salvage-dropped reserve directive still gets its real
+        # interpretation reported, even though the schedule couldn't honor it.
+        assert body["directive_interpretation"][1]["directive_type"] == "minimum_battery_reserve"
+        assert body["directive_interpretation"][1]["applies"] is True
