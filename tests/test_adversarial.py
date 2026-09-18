@@ -105,11 +105,7 @@ class TestMixedInjectionMockedModel:
         assert result.directives[0].factor == 0.5
 
 
-_no_key = not config.GROQ_API_KEYS
-_skip_reason = "no GROQ_API_KEYS/GROQ_API_KEY configured -- live adversarial tests never run in the default suite"
-
-
-@pytest.mark.skipif(_no_key, reason=_skip_reason)
+@pytest.mark.live
 class TestLiveAdversarial:
     def _interpret(self, note: str):
         battery = make_battery()

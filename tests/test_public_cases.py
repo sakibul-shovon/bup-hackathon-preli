@@ -11,12 +11,17 @@ is exactly guardrails.py's *output* shape.
 app/summary.py (Dev B, not yet built) is not wired in here; plan_summary is a
 placeholder string for the purpose of checking the response's top-level shape.
 """
+import asyncio
 import json
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 
+from app import config
 from app.directives import NormalizedDirective, build_interpretation_array
+from app.llm_interpreter import create_key_pool, interpret_notes
 from app.optimizer import optimize
 from app.schemas import OptimizeRequest
 from app.validator import replay
@@ -168,3 +173,43 @@ def test_cost_within_tolerance_of_reference(case):
         f"{case['id']}: got {response['total_cost_bdt']}, reference {reference_cost} "
         "(above = suboptimal bug, below = constraint bug)"
     )
+
+
+@pytest.mark.live
+@pytest.mark.parametrize("case", _load_cases(), ids=case_ids())
+def test_live_interpretation_matches_ground_truth(case):
+    """Section 12.1's second half: the REAL Groq call, per case, must match
+    ground truth (type, applies, hours, numerics within 0.01). Never runs in
+    the default suite -- select explicitly with `pytest -m live` and a real
+    GROQ_API_KEYS/GROQ_API_KEY set (conftest.py skips it otherwise)."""
+    request = OptimizeRequest(**case["input"])
+    battery = request.battery
+
+    async def go():
+        async with httpx.AsyncClient() as client:
+            pool = create_key_pool()
+            deadline = time.monotonic() + config.LLM_DEADLINE_SECONDS
+            return await interpret_notes(request.operator_notes, battery, client, pool, deadline)
+
+    result = asyncio.run(go())
+    assert not result.degraded, f"{case['id']}: live interpretation degraded (provider/key issue?)"
+
+    for expected in case["expected_output"]["directive_interpretation"]:
+        got = result.directives[expected["note_index"]]
+        assert got.directive_type == expected["directive_type"], (
+            f"{case['id']} note {expected['note_index']}: got {got.directive_type}, "
+            f"expected {expected['directive_type']}"
+        )
+        assert (got.directive_type != "no_op") == expected["applies"]
+
+        sa = expected["structured_adjustment"] or {}
+        if "hours" in sa:
+            assert set(got.hours) == set(sa["hours"]), (
+                f"{case['id']} note {expected['note_index']}: hours {got.hours} != {sa['hours']}"
+            )
+        if "factor" in sa:
+            assert got.factor is not None and abs(got.factor - sa["factor"]) <= 0.01
+        if "minimum_energy_kwh" in sa:
+            assert got.minimum_energy_kwh is not None and abs(got.minimum_energy_kwh - sa["minimum_energy_kwh"]) <= 0.01
+        if "max_grid_kwh" in sa:
+            assert got.max_grid_kwh is not None and abs(got.max_grid_kwh - sa["max_grid_kwh"]) <= 0.01
