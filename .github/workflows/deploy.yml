@@ -1,0 +1,38 @@
+name: Deploy to VPS
+
+# Push-to-deploy for GridWise only. Runs entirely inside /opt/gridwise/repo on
+# the VPS -- a directory and Docker container (gridwise-app, port 8000)
+# completely separate from the syntax-carnival-website stack already running
+# on that box. Never touches its containers, network, ports, or config.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/gridwise/repo
+            GIT_SSH_COMMAND='ssh -i /root/.ssh/gridwise_deploy_key -o StrictHostKeyChecking=no' git pull origin main
+            docker build -t gridwise:prod .
+            docker stop gridwise-app 2>/dev/null || true
+            docker rm gridwise-app 2>/dev/null || true
+            docker run -d --name gridwise-app --restart unless-stopped -p 8000:8000 \
+              -e GROQ_API_KEYS="${{ secrets.GROQ_API_KEYS }}" gridwise:prod
+            sleep 3
+            curl -f http://localhost:8000/health
