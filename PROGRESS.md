@@ -92,7 +92,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · 🔴 blocked
 | L5 | `llm_interpreter.py` + key rotation + deadline | ✅ | `test_provider.py` green incl. rotation + degrade |
 | L6 | `guardrails.py` | ✅ | per-note violation tracking works |
 | L7 | `main.py` orchestration + degrade + salvage | ✅ | full pipeline 200s end-to-end |
-| L8 | `test_precision.py` + `test_api.py` + `test_adversarial.py` | ⬜ | full suite green |
+| L8 | `test_precision.py` + `test_api.py` + `test_adversarial.py` | ✅ | full suite green |
 | L9 | `scripts/fuzz.py` + live paraphrase holdout | ⬜ | 100% replay-valid, misses investigated |
 | L10 | Deploy + external smoke test | ⬜ | public URL answers from a different network |
 
