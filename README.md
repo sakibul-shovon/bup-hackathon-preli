@@ -201,9 +201,15 @@ pytest -q
 ## 10. Docker Fallback
 
 ```bash
-docker pull ghcr.io/sakibul-shovon/bup-hackathon-preli:main
-docker run -p 8000:8000 -e GROQ_API_KEYS="your_key_here" ghcr.io/sakibul-shovon/bup-hackathon-preli:main
+docker pull ghcr.io/sakibul-shovon/bup-hackathon-preli:final
+docker run -p 8000:8000 -e GROQ_API_KEYS="your_key_here" ghcr.io/sakibul-shovon/bup-hackathon-preli:final
 ```
+
+Also tagged `:latest`. Image is `linux/amd64`, binds `0.0.0.0:8000`, and
+contains no baked-in secrets -- `GROQ_API_KEYS` is supplied at `docker run`
+time only. The package is kept **private until the submission deadline**,
+matching this repository's own visibility policy; it is made public at the
+same time the repository is.
 
 ## 11. Dependencies & Credits
 
