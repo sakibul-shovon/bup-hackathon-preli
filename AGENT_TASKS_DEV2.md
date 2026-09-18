@@ -182,7 +182,7 @@ explanation returns the fallback; a 500-character explanation is cut to 200.
 
 ---
 
-## B2 — `app/summary.py`   ~20 min   ⬜
+## B2 — `app/summary.py`   ~20 min   ✅
 
 One function that writes the human-readable `plan_summary` sentence in our API response.
 All inputs are plain numbers and lists — you do not need to understand the optimiser.
