@@ -138,16 +138,16 @@ Append here, newest first. Lead clears them.
 
 ## ✅ Pre-submission gate (plan §21 — nothing ships until all of these are true)
 
-- [ ] `pytest -q` fully green
-- [ ] 10/10 public cases: replay-clean + cost within 0.01
-- [ ] Five extra-field tolerance tests green (**F3 — a 400 here is a near-zero-score bug**)
-- [ ] `test_precision.py` green at 8 dp / ε=1e-6 (**F2**)
-- [ ] `initial < minimum` returns 422 and the optimizer was NOT modified (**F4**)
-- [ ] No key set at all → `/optimize-energy` still returns **200**, never 500 (**F1**)
-- [ ] Worst mocked ladder returns inside `LLM_DEADLINE_SECONDS + 2s` (**F5**)
-- [ ] Pushed image manifest says **linux/amd64** (**F9**)
-- [ ] Public URL answers `/health` + one sample case from a phone hotspot
-- [ ] p95 < 5 s recorded
-- [ ] No secret in repo, logs, responses, or image history
-- [ ] README quickstart replayed in a clean shell
+- [x] `pytest -q` fully green (493 passed, 19 skipped -- the live tier, which itself passed 19/19 under `-m live` with the real key)
+- [x] 10/10 public cases: replay-clean + cost within 0.01 (verified against the live public URL with the real GROQ key -- diff 0.0000 on all 10)
+- [x] Five extra-field tolerance tests green (**F3 — a 400 here is a near-zero-score bug**)
+- [x] `test_precision.py` green at 8 dp / ε=1e-6 (**F2**)
+- [x] `initial < minimum` returns 422 and the optimizer was NOT modified (**F4**)
+- [x] No key set at all → `/optimize-energy` still returns **200**, never 500 (**F1**)
+- [x] Worst mocked ladder returns inside `LLM_DEADLINE_SECONDS + 2s` (**F5**)
+- [x] Pushed image manifest says **linux/amd64** (**F9** -- confirmed both on the local build and the VPS's native build)
+- [ ] Public URL answers `/health` + one sample case from a phone hotspot -- answers from this machine's network; a literal phone-hotspot check needs the user
+- [x] p95 < 5 s recorded (1.2 s, measured externally against the live public URL)
+- [x] No secret in repo, logs, responses, or image history (also checked VPS container logs after real-key runs -- only `key_idx=`, never a key value)
+- [ ] README quickstart replayed in a clean shell -- Dev B verified an earlier version (B6); the quickstart/example-response section was rewritten after that (real bugs fixed), not yet re-replayed clean
 - [ ] Video ≤ 3:00 and accessible
