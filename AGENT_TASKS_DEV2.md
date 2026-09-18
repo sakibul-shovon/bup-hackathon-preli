@@ -238,7 +238,7 @@ twice with identical arguments returns identical strings.
 
 ---
 
-## B3 — `tests/data/paraphrases.json`   ~35 min   ⬜   ⭐ high value
+## B3 — `tests/data/paraphrases.json`   ~35 min   ✅   ⭐ high value
 
 This is the **test corpus for the 5-point paraphrase-robustness score.** You are writing
 fresh ways a campus operator might phrase each rule, so we can check our system understands
