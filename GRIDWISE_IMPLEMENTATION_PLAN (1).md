@@ -578,7 +578,9 @@ Interpret these {N} operator notes.
 
 ### 7.8 Cache
 
-`functools`-style LRU (size 256), key = sha256 of canonical JSON `{"notes":[...], "cap": capacity}` → validated IR (post-guardrail). Capacity is in the key because percent-of-capacity reserves depend on it. Repeated judge stability probes then cost zero quota and < 20 ms. Do NOT cache full responses (recompute is 5 ms; stale-response bugs are not worth it).
+`functools`-style LRU (size 256), key = sha256 of canonical JSON `{"notes":[...], "battery": {all five fields}}` → validated IR (post-guardrail). Repeated judge stability probes then cost zero quota and < 20 ms. Do NOT cache full responses (recompute is 5 ms; stale-response bugs are not worth it).
+
+**The key must cover all five battery fields, not just capacity (F8 consequence).** Now that the prompt carries `initial_energy_kwh` and `minimum_energy_kwh`, a reserve expressed as a percentage of either resolves to a different kWh value under a different battery — caching on notes+capacity alone would serve a stale, wrong reserve to a scenario that merely shares its note text and capacity. Whatever the prompt can see must be in the cache key. Never cache a degraded or partially-degraded interpretation: caching a provider outage would keep serving `no_op`s long after the provider recovered.
 
 ### 7.9 Prompt-injection posture (why this is sufficient — do not add more)
 
@@ -614,16 +616,18 @@ Output `NormalizedDirectives`: for each note, `(note_index, directive_type, hour
 
 ### 9.1 Pydantic v2 request models
 
+**F3: every `extra="forbid"` below became `extra="ignore"`.** See I6a for why this is the highest-leverage single change in V4. Everything else stays exactly as strict.
+
 ```python
 class HourEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     hour: int = Field(ge=0, le=23)
     demand_kwh: float = Field(ge=0, allow_inf_nan=False)
     solar_kwh: float = Field(ge=0, allow_inf_nan=False)
     tariff_bdt_per_kwh: float = Field(ge=0, allow_inf_nan=False)
 
 class Battery(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     capacity_kwh: float = Field(ge=0, allow_inf_nan=False)
     initial_energy_kwh: float = Field(ge=0, allow_inf_nan=False)
     minimum_energy_kwh: float = Field(ge=0, allow_inf_nan=False)
@@ -631,7 +635,7 @@ class Battery(BaseModel):
     max_discharge_kwh_per_hour: float = Field(ge=0, allow_inf_nan=False)
 
 class OptimizeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     scenario_id: str
     operator_notes: list[str] = Field(min_length=1, max_length=3)
     hours: list[HourEntry] = Field(min_length=24, max_length=24)
@@ -742,8 +746,8 @@ Flat tariffs make battery cycling cost-neutral; the LP may return arbitrary vali
 2. Kill `-0.0`: `x = x + 0.0` after snapping (a serialized `-0.0` can fail a naive `>= 0` judge check).
 3. Actions from snapped b; idle ⇒ battery_kwh exactly 0.
 4. REBUILD the SOC trajectory cumulatively from `initial_energy_kwh` with the snapped flows — never emit raw solver SOC (drift compounds over 24 steps).
-5. Round emitted plan values to 4 dp (judge tolerance 0.01 → two guard digits; do not round more).
-6. `total_grid_kwh = round(Σ emitted grid, 4)`; `total_cost_bdt = round(Σ emitted_grid[h] × tariff[h], 4)`; `peak_grid_kwh = max(emitted grid)` — all FROM the final emitted values, so the judge's recomputation matches by construction (fp error of summing 24 four-decimal floats ≈ 1e-13 ≪ 0.01).
+5. **Round emitted plan values to 8 dp — NOT 4 (F2/I36).** V3's 4 dp made the service reject its own valid output on 105 of 477 decimal-heavy scenarios; 8 dp makes it 0 of 477. The rounding exists only to stop solver dust reaching the wire, so it must stay far below the replay ε. Do not "tidy" this number. See I36 for the measured table and the rule `ε ≥ 100 × quantum`.
+6. `total_grid_kwh = round(Σ emitted grid, 8)`; `total_cost_bdt = round(Σ emitted_grid[h] × tariff[h], 8)`; `peak_grid_kwh = max(emitted grid)` — all FROM the final emitted values, so the judge's recomputation matches by construction (fp error of summing 24 eight-decimal floats ≈ 1e-12 ≪ 0.01).
 7. Clamp display negatives: after rounding, assert nothing < 0 remains (snapping guarantees it; assert anyway).
 
 ### 10.5 Feasibility salvage (runs only after the corrective re-ask also produced an infeasible LP)
@@ -851,7 +855,7 @@ Priority if time collapses: 12.1, 12.2, the validator negative tests, 12.4, 12.6
 | Giant / hostile note strings | schema cap 2000; sanitizer truncates at 1000 pre-prompt; Cf/Cc stripping |
 | NaN/Infinity in request | `allow_inf_nan=False` → 400 |
 | NaN/Infinity from model | `json.loads(parse_constant=raise)` + isfinite guardrails |
-| Deep/foreign JSON structures | `extra="forbid"` everywhere |
+| Deep/foreign JSON structures | 2 MB body cap + `extra="ignore"`: unknown fields are DROPPED, never parsed into our models and never forwarded to the prompt or the optimizer. Ignoring is as safe as forbidding here and cannot 400 a valid judge request (I6a) |
 | Wrong content-type / method / path | graceful 400/405/404 JSON |
 | Exception leakage | global handler, opaque bodies, traces to server logs only |
 | Log injection | never log note text; log lengths + sha256 prefixes |
