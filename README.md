@@ -4,6 +4,21 @@
 
 GridWise uses a hybrid neuro-symbolic architecture to ensure 100% hard-constraint adherence. **The LLM performs the semantic interpretation of operator notes into the structured directives used to build the optimization constraints. Deterministic code does everything else: validation, guardrails, arithmetic, LP optimization, and replay.**
 
+This follows the canonical end-to-end flow required by the Problem Statement (Section 03):
+`Energy Data + Operator Notes → LLM Interpreter → Guardrail Validator → Math Optimizer → Final Validator → API Response`
+
+```mermaid
+flowchart LR
+    A["Energy Data +\nOperator Notes\n(POST /optimize-energy)"] --> B["LLM Interpreter\napp/llm_interpreter.py\nGroq, strict JSON schema"]
+    B --> C["Guardrail Validator\napp/guardrails.py\ndeterministic, untrusted-input checks"]
+    C --> D["Directives\napp/directives.py\nwindow merge + unit conversion"]
+    D --> E["Math Optimizer\napp/optimizer.py\nLP via scipy HiGHS"]
+    E --> F["Final Validator\napp/validator.py\nindependent replay, zero shared code with optimizer"]
+    F --> G["API Response\nhourly_plan + directive_interpretation"]
+```
+
+**Core idea (Problem Statement Section 03):** human notes are never trusted as math directly. They are first converted to a fixed structured format by the LLM, checked by deterministic guardrails, and only then applied to the optimization model. `app/validator.py` re-derives every physical constraint from scratch (effective solar, active reserve, grid cap, charge/discharge bounds) independently of the optimizer, so a bug in one cannot hide behind the other.
+
 ### Request Flow
 1. **Validation**: Strict Pydantic parsing of the incoming scenario.
 2. **Cache Check**: Exact JSON hash match against previous runs.
