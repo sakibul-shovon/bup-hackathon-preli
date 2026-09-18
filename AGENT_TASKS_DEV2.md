@@ -348,7 +348,7 @@ responses — then you can paste real output instead of guessing.
 
 ---
 
-## B5 — `scripts/latency_probe.py`   ~15 min   ⬜
+## B5 — `scripts/latency_probe.py`   ~15 min   ✅
 
 A small script that measures how fast our deployed API responds. We need **p95 under 5
 seconds** for full marks.
