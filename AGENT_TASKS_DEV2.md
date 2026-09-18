@@ -62,7 +62,7 @@ Never use `git add -A` or `git add .` — it would pick up the lead's files.
 
 ---
 
-## B0 — Project files   ~15 min   ⬜
+## B0 — Project files   ~15 min   ✅
 
 Create five small files. Four are nearly copy-paste from the plan.
 
