@@ -86,7 +86,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · 🔴 blocked
 |---|---|---|---|
 | L0 | Repo skeleton + `config.py` + `schemas.py` + `/health` | ✅ | `curl /health` → `{"status":"ok"}`, `pytest` collects |
 | L1 | `directives.py` + `test_directives.py` | ✅ | window/factor/reserve/merge tests green |
-| L2 | `optimizer.py` (own session) | ⬜ | solves; 24-var LP returns status 0 |
+| L2 | `optimizer.py` (own session) | ✅ | solves; 24-var LP returns status 0 |
 | L3 | `validator.py` (SEPARATE session) | ⬜ | negative tests catch all 10 replay checks |
 | L4 | `test_public_cases.py` — **THE ANCHOR** | ⬜ | **10/10 replay-clean AND cost within 0.01 of reference** |
 | L5 | `llm_interpreter.py` + key rotation + deadline | ⬜ | `test_provider.py` green incl. rotation + degrade |
