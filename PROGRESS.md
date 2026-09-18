@@ -94,7 +94,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · 🔴 blocked
 | L7 | `main.py` orchestration + degrade + salvage | ✅ | full pipeline 200s end-to-end |
 | L8 | `test_precision.py` + `test_api.py` + `test_adversarial.py` | ✅ | full suite green |
 | L9 | `scripts/fuzz.py` + live paraphrase holdout | ✅ | 100% replay-valid, misses investigated |
-| L10 | Deploy + external smoke test | 🟡 | public URL answers from a different network |
+| L10 | Deploy + external smoke test | ✅ | public URL answers from a different network |
 
 ### Dev B — support, docs, deploy artifacts
 
@@ -131,7 +131,8 @@ Append here, newest first. Lead clears them.
 
 | Time | Who | Blocker | Resolved? |
 |---|---|---|---|
-| now | A | L10: Docker Desktop started and image built/verified locally (linux/amd64, F9 confirmed; /health 200; all 10 public cases return 200 never 500 with no key, F1 confirmed). Push to a registry, deploy to an always-on host, uptime monitor, and the phone-hotspot smoke test still need the user directly (credentials + physical access this session doesn't have). User chose to handle push/deploy themselves. | Partially resolved -- local build done, push/deploy handed off |
+| earlier | A | L10 blocker (local Docker verified, push/deploy pending credentials) | Resolved -- see below |
+| now | A | L10 fully deployed: user provided VPS access (165.99.219.20, root) + real GROQ keys. Confirmed the box already runs syntax-carnival-website (separate docker-compose stack, ports 80/443/5433) -- left it completely untouched. Deployed gridwise-app as an isolated container on port 8000 in /opt/gridwise/repo. Set up push-to-deploy CI/CD via GitHub Actions (deploy key for the VPS to pull, separate keypair + repo secrets for Actions to SSH in). Verified externally: `curl http://165.99.219.20:8000/health` and all 10 public cases -- 10/10 exact match to reference, replay-clean, through the real deployed URL with the real model. Still open: uptime monitor, phone-hotspot test, p95 latency logged from outside (p95=3.3s was measured against localhost during the key sanity-check, not yet re-measured against the public URL), video. | Deploy done; monitor/phone-test/video outstanding |
 
 ---
 
